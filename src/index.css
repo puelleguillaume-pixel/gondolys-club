@@ -1,0 +1,77 @@
+@import 'tailwindcss';
+@import '@fontsource/bagel-fat-one/latin-400.css';
+@import '@fontsource-variable/outfit/wght.css';
+
+/*
+ * Mise en page : tout est aligné à gauche, une seule colonne sur mobile.
+ * Le module de réservation est dans le hero, parce que réserver est le seul rôle du site.
+ * Couleurs et typographies viennent du logo. Le jaune parasol est réservé aux actions.
+ */
+@theme {
+  --color-petrol-950: #123e50;
+  --color-petrol-900: #1d576e;
+  --color-petrol-700: #2b6376;
+  --color-petrol-500: #4a7988;
+  --color-mist: #acc0c0;
+  --color-cream: #f8fbf3;
+  --color-sun: #f6c94c;
+  --color-sun-deep: #e9b62a;
+  /* États du plan : volontairement distincts du jaune des actions. */
+  --color-ok: #2a8a5a;
+  --color-danger: #b23f2c;
+  --color-off: #c9d3d1;
+  --color-shell: #eef3f0;
+
+  --font-display: 'Bagel Fat One', 'Arial Rounded MT Bold', 'Arial Black', system-ui, sans-serif;
+  --font-sans: 'Outfit Variable', 'Avenir Next', 'Century Gothic', system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-petrol-950);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-sun);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Écailles : la texture du logo, redessinée en motif répétable. */
+.scales {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56' fill='none' stroke='%23F8FBF3' stroke-opacity='.09' stroke-width='1.5'%3E%3Cpath d='M0 0a28 28 0 0 0 56 0M-28 28a28 28 0 0 0 56 0M28 28a28 28 0 0 0 56 0'/%3E%3C/svg%3E");
+  background-size: 56px 56px;
+}
+
+/* Feston : une rangée d'écailles pour passer d'une section à l'autre. */
+.scallop {
+  height: 18px;
+  background-image: radial-gradient(circle at 18px 18px, currentColor 17.5px, transparent 18px);
+  background-size: 36px 18px;
+  background-repeat: repeat-x;
+  background-position: center bottom;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
