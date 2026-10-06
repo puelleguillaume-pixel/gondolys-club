@@ -6,6 +6,7 @@ import {
   holdsSunbeds,
   type DayData,
   type ProApi,
+  type PublicApi,
   type Reservation,
   type Sunbed,
 } from './types'
@@ -16,7 +17,7 @@ import {
  */
 
 type State = { layout: Sunbed[]; reservations: Reservation[]; blocked: Record<string, number[]> }
-const KEY = 'gondolys-demo-v1'
+const KEY = 'gondolys-demo-v2'
 const SESSION_KEY = 'gondolys-demo-session'
 
 function seed(): State {
@@ -48,6 +49,8 @@ function seed(): State {
       make(4, today, 'Sophie Blanc', [13]),
       make(5, today, 'Marc Puig', [21, 22, 23]),
       make(6, today, 'Léa Fabre', [31, 32], 'cancelled'),
+      { ...make(9, today, 'Nina Costa', []), quantity: 2, status: 'pending' },
+      { ...make(10, tomorrow, 'Hugo Bonet', []), quantity: 4, status: 'pending' },
       make(7, tomorrow, 'Paul Soler', [1, 2]),
       make(8, tomorrow, 'Emma Coste', [3, 4, 5, 6]),
     ],
@@ -65,17 +68,25 @@ function load(): State {
   return seed()
 }
 
-let state = load()
-let signedIn = false
-try {
-  signedIn = sessionStorage.getItem(SESSION_KEY) === '1'
-} catch {
-  /* idem */
+// Rien n'est lu au chargement du module : sans mode démo, ce fichier disparaît du build.
+let loaded: State | null = null
+const st = (): State => (loaded ??= load())
+
+let session: boolean | null = null
+function isSignedIn(): boolean {
+  if (session === null) {
+    try {
+      session = sessionStorage.getItem(SESSION_KEY) === '1'
+    } catch {
+      session = false
+    }
+  }
+  return session
 }
 
 function persist() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(state))
+    localStorage.setItem(KEY, JSON.stringify(st()))
   } catch {
     /* idem */
   }
@@ -83,8 +94,8 @@ function persist() {
 
 function freeOn(date: string, ignoreId?: string): Set<number> {
   const free = new Set(Array.from({ length: TOTAL_SUNBEDS }, (_, i) => i + 1))
-  for (const n of state.blocked[date] ?? []) free.delete(n)
-  for (const r of state.reservations) {
+  for (const n of st().blocked[date] ?? []) free.delete(n)
+  for (const r of st().reservations) {
     if (r.date === date && r.id !== ignoreId && holdsSunbeds(r.status)) {
       r.sunbeds.forEach((n) => free.delete(n))
     }
@@ -93,7 +104,7 @@ function freeOn(date: string, ignoreId?: string): Set<number> {
 }
 
 const find = (id: string) => {
-  const r = state.reservations.find((x) => x.id === id)
+  const r = st().reservations.find((x) => x.id === id)
   if (!r) throw new Error('Réservation introuvable.')
   return r
 }
@@ -104,10 +115,10 @@ export const demoApi: ProApi = {
   mode: 'demo',
 
   async getSession() {
-    return signedIn ? { email: 'démo' } : null
+    return isSignedIn() ? { email: 'démo' } : null
   },
   async signIn() {
-    signedIn = true
+    session = true
     try {
       sessionStorage.setItem(SESSION_KEY, '1')
     } catch {
@@ -115,7 +126,7 @@ export const demoApi: ProApi = {
     }
   },
   async signOut() {
-    signedIn = false
+    session = false
     try {
       sessionStorage.removeItem(SESSION_KEY)
     } catch {
@@ -124,19 +135,38 @@ export const demoApi: ProApi = {
   },
 
   async getLayout() {
-    return copy(state.layout)
+    return copy(st().layout)
   },
   async saveLayout(layout) {
-    state.layout = copy(layout)
+    st().layout = copy(layout)
     persist()
   },
 
   async getDay(date): Promise<DayData> {
     return copy({
       date,
-      reservations: state.reservations.filter((r) => r.date === date),
-      blocked: state.blocked[date] ?? [],
+      reservations: st().reservations.filter((r) => r.date === date),
+      blocked: st().blocked[date] ?? [],
     })
+  },
+
+  async listPending() {
+    const today = todayInParis()
+    return copy(
+      st().reservations
+        .filter((r) => r.status === 'pending' && r.date >= today)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)),
+    )
+  },
+
+  async confirm(id, preferred) {
+    const r = find(id)
+    if (r.status !== 'pending') throw new Error("Cette demande n'est plus en attente.")
+    const sunbeds = allocate(r.quantity, freeOn(r.date), preferred)
+    if (!sunbeds) throw new Error(`Plus assez de transats libres pour ${r.quantity} personnes ce jour-là.`)
+    r.sunbeds = sunbeds
+    r.status = 'confirmed'
+    persist()
   },
 
   async createReservation({ date, quantity, name, phone, preferred }) {
@@ -153,7 +183,7 @@ export const demoApi: ProApi = {
       sunbeds,
       createdAt: new Date().toISOString(),
     }
-    state.reservations.push(reservation)
+    st().reservations.push(reservation)
     persist()
     return copy(reservation)
   },
@@ -162,7 +192,7 @@ export const demoApi: ProApi = {
     const r = find(id)
     if (holdsSunbeds(status) && !holdsSunbeds(r.status)) {
       const free = freeOn(r.date)
-      if (!r.sunbeds.every((n) => free.has(n))) {
+      if (r.sunbeds.length === 0 || !r.sunbeds.every((n) => free.has(n))) {
         throw new Error('Ces transats ont été réattribués depuis. Créez une nouvelle réservation.')
       }
     }
@@ -179,18 +209,46 @@ export const demoApi: ProApi = {
   },
 
   async setBlocked(date, n, blocked) {
-    const current = new Set(state.blocked[date] ?? [])
+    const current = new Set(st().blocked[date] ?? [])
     if (blocked) {
       if (!freeOn(date).has(n)) throw new Error(`Le transat ${n} est réservé ce jour-là.`)
       current.add(n)
     } else current.delete(n)
-    state.blocked[date] = [...current].sort((a, b) => a - b)
+    st().blocked[date] = [...current].sort((a, b) => a - b)
+    persist()
+  },
+}
+
+const digits = (phone: string) => phone.replace(/\D/g, '')
+
+export const demoPublicApi: PublicApi = {
+  async requestReservation({ date, quantity, name, phone }) {
+    // Une seule demande par personne et par jour : ici la personne est reconnue à son téléphone,
+    // en attendant l'authentification du client.
+    const already = st().reservations.some(
+      (r) =>
+        r.date === date &&
+        digits(r.phone) === digits(phone) &&
+        (r.status === 'pending' || holdsSunbeds(r.status)),
+    )
+    if (already) throw new Error('Vous avez déjà une demande pour ce jour-là.')
+    st().reservations.push({
+      id: `d-${Date.now().toString(36)}`,
+      date,
+      quantity,
+      status: 'pending',
+      source: 'web',
+      name: name.trim(),
+      phone: phone.trim(),
+      sunbeds: [],
+      createdAt: new Date().toISOString(),
+    })
     persist()
   },
 }
 
 /** Remet les données d'exemple. */
 export function resetDemo() {
-  state = seed()
+  loaded = seed()
   persist()
 }

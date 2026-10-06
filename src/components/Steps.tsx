@@ -6,12 +6,12 @@ const steps = [
     text: `Et le nombre de transats, jusqu'à ${booking.maxPerBooking} par réservation.`,
   },
   {
-    title: 'Identifiez-vous',
-    text: 'Votre compte évite les doublons : une réservation par personne et par jour.',
+    title: 'Envoyez votre demande',
+    text: 'Votre nom et votre téléphone suffisent. Une demande par personne et par jour.',
   },
   {
-    title: 'Venez au club',
-    text: `Donnez votre nom à l'accueil, l'équipe vous installe.${
+    title: 'Le club confirme',
+    text: `Votre réservation est définitive une fois confirmée. Le jour venu, donnez votre nom à l'accueil.${
       booking.paymentOnSite ? ' Vous réglez sur place.' : ''
     }`,
   },

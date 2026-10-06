@@ -16,6 +16,10 @@ npm run build    # vérifie les types puis génère dist/
 
 Accessible par le lien « Espace pro » du pied de page, ou directement sur `/pro`.
 
+Chaque réservation venue du site est une **demande** : elle reste « à confirmer » et n'occupe aucun transat tant que le club ne l'a pas confirmée. Le club la confirme (attribution automatique, ou en touchant un transat libre pour choisir l'emplacement) ou la refuse. Les réservations saisies par le club sont confirmées d'office.
+
+Tant qu'aucune base n'est branchée, les demandes ne quittent pas le navigateur du client : sur le site en ligne, le module renvoie donc vers le téléphone du club.
+
 - **Journée** : plan des 50 transats pour le jour choisi (libre, réservé, client arrivé, bloqué), liste des réservations, saisie d'une réservation, arrivée, absence, annulation, changement de transat, blocage d'un transat.
 - **Disposition** : glisser-déposer des transats par paire ou à l'unité, rotation, annuler / rétablir, enregistrement. La disposition vaut pour tous les jours et n'est jamais visible côté client.
 

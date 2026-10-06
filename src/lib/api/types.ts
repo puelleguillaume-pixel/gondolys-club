@@ -1,7 +1,13 @@
 /** Un transat sur le plan. Le numéro est fixe ; la paire se déduit du numéro (1-2, 3-4, …). */
 export type Sunbed = { n: number; x: number; y: number; r: number }
 
-export type ReservationStatus = 'confirmed' | 'arrived' | 'no_show' | 'cancelled'
+/**
+ * pending   : demande du client, en attente de confirmation par le club (aucun transat attribué)
+ * confirmed : confirmée par le club, transats attribués
+ * arrived   : client installé
+ * refused / cancelled / no_show : n'occupent plus de transat
+ */
+export type ReservationStatus = 'pending' | 'confirmed' | 'arrived' | 'no_show' | 'cancelled' | 'refused'
 
 export type Reservation = {
   id: string
@@ -38,10 +44,20 @@ export interface ProApi {
   getLayout(): Promise<Sunbed[]>
   saveLayout(layout: Sunbed[]): Promise<void>
   getDay(date: string): Promise<DayData>
+  /** Toutes les demandes en attente, à partir d'aujourd'hui, tous jours confondus. */
+  listPending(): Promise<Reservation[]>
+  /** Réservation saisie par le club : confirmée d'office. */
   createReservation(input: NewReservation): Promise<Reservation>
+  /** Confirme une demande et lui attribue ses transats (à partir de `preferred` si le club l'a choisi). */
+  confirm(id: string, preferred?: number): Promise<void>
   setStatus(id: string, status: ReservationStatus): Promise<void>
   moveSunbed(id: string, from: number, to: number): Promise<void>
   setBlocked(date: string, n: number, blocked: boolean): Promise<void>
+}
+
+/** Ce que le site public a le droit de faire : envoyer une demande, rien d'autre. */
+export interface PublicApi {
+  requestReservation(input: Omit<NewReservation, 'preferred'>): Promise<void>
 }
 
 export const TOTAL_SUNBEDS = 50

@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { AnimatePresence, m as motion } from 'framer-motion'
 import { booking, club } from '../config/club'
+import { isDemo, publicApi } from '../lib/api'
 import { dayNumber, formatLong, shortWeekday, upcomingDays, weekdayIndex } from '../lib/dates'
 
 const plural = (n: number) => `${n} transat${n > 1 ? 's' : ''}`
@@ -9,16 +10,40 @@ export default function BookingCard() {
   const days = useMemo(() => upcomingDays(booking.daysAhead), [])
   const [date, setDate] = useState(days[0])
   const [count, setCount] = useState(2)
-  const [step, setStep] = useState<'choose' | 'summary'>('choose')
+  const [step, setStep] = useState<'choose' | 'summary' | 'sent'>('choose')
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const hours = club.hours[weekdayIndex(date)]
   const total = booking.pricePerSunbed === null ? null : booking.pricePerSunbed * count
 
+  const handleContinue = () => {
+    setError(null)
+    setStep('summary')
+  }
+
   /**
-   * Point de branchement du back : quand `booking.onlineOpen` est vrai,
-   * remplacer par l'authentification du client puis l'appel à la RPC de réservation.
+   * Envoie la demande au club. Elle n'est définitive qu'une fois confirmée dans l'espace pro.
+   * Point de branchement du back : ajouter ici l'authentification du client avant l'envoi.
    */
-  const handleContinue = () => setStep('summary')
+  const sendRequest = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!publicApi || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await publicApi.requestReservation({ date, quantity: count, name, phone })
+      setStep('sent')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "La demande n'est pas partie. Réessayez.")
+    }
+    setBusy(false)
+  }
+
+  const field =
+    'mt-1 min-h-12 w-full rounded-2xl border-2 border-petrol-900/25 bg-white px-4 text-base focus:border-petrol-900'
 
   return (
     <section
@@ -129,7 +154,7 @@ export default function BookingCard() {
               {booking.paymentOnSite && 'Vous réglez sur place, rien à payer en ligne.'}
             </p>
           </motion.div>
-        ) : (
+        ) : step === 'summary' ? (
           <motion.div
             key="summary"
             initial={{ opacity: 0, x: 12 }}
@@ -137,45 +162,127 @@ export default function BookingCard() {
             exit={{ opacity: 0, x: 12 }}
             transition={{ duration: 0.22 }}
           >
-            <dl className="mt-6 divide-y divide-petrol-900/15 border-y border-petrol-900/15">
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-petrol-700">Jour</dt>
-                <dd className="text-right font-semibold first-letter:uppercase">{formatLong(date)}</dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-petrol-700">Horaires</dt>
-                <dd className="text-right font-semibold">
-                  {hours.open} – {hours.close}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-petrol-700">Transats</dt>
-                <dd className="text-right font-semibold">{count}</dd>
-              </div>
-            </dl>
+            <Recap date={date} hours={`${hours.open} – ${hours.close}`} count={count} />
 
-            <p className="mt-5 text-base">
-              La réservation en ligne ouvre bientôt. D'ici là, réservez {plural(count)} par téléphone :
-            </p>
-            <a
-              href={club.phone.href}
-              className="mt-2 inline-block font-display text-3xl leading-tight text-petrol-900 underline decoration-sun decoration-4 underline-offset-4"
-            >
-              {club.phone.display}
-            </a>
+            {publicApi ? (
+              <form onSubmit={sendRequest}>
+                <label htmlFor="demande-nom" className="mt-5 block text-sm font-semibold">
+                  Votre nom
+                </label>
+                <input
+                  id="demande-nom"
+                  required
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={field}
+                />
+                <label htmlFor="demande-tel" className="mt-4 block text-sm font-semibold">
+                  Votre téléphone
+                </label>
+                <input
+                  id="demande-tel"
+                  type="tel"
+                  inputMode="tel"
+                  required
+                  pattern="[0-9+ .]{10,17}"
+                  title="Un numéro de téléphone, par exemple 06 12 34 56 78"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className={field}
+                />
+                {error && (
+                  <p role="alert" className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 font-medium text-danger">
+                    {error}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  id="demande-envoyer"
+                  disabled={busy}
+                  className="mt-6 w-full rounded-full bg-sun px-6 py-4 text-lg font-semibold text-petrol-950 transition-colors hover:bg-sun-deep disabled:opacity-50"
+                >
+                  Envoyer ma demande
+                </button>
+                <p className="mt-3 text-center text-sm text-petrol-700">
+                  Le club confirme chaque réservation. La vôtre est définitive une fois confirmée.
+                </p>
+              </form>
+            ) : (
+              <>
+                <p className="mt-5 text-base">
+                  La réservation en ligne ouvre bientôt. D'ici là, réservez {plural(count)} par téléphone :
+                </p>
+                <a
+                  href={club.phone.href}
+                  className="mt-2 inline-block font-display text-3xl leading-tight text-petrol-900 underline decoration-sun decoration-4 underline-offset-4"
+                >
+                  {club.phone.display}
+                </a>
+              </>
+            )}
 
             <button
               type="button"
               id="reserver-modifier"
               onClick={() => setStep('choose')}
-              className="mt-6 w-full rounded-full border-2 border-petrol-900 px-6 py-3.5 text-lg font-semibold text-petrol-900 transition-colors hover:bg-petrol-900 hover:text-cream"
+              className="mt-4 w-full rounded-full border-2 border-petrol-900 px-6 py-3.5 text-lg font-semibold text-petrol-900 transition-colors hover:bg-petrol-900 hover:text-cream"
             >
               Modifier ma demande
+            </button>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="sent"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <p role="status" className="mt-5 font-display text-2xl leading-tight text-petrol-900">
+              Demande envoyée, {name.trim().split(' ')[0]}.
+            </p>
+            <Recap date={date} hours={`${hours.open} – ${hours.close}`} count={count} />
+            <p className="mt-5 text-base">
+              Elle est <strong className="font-semibold">en attente de confirmation</strong>. Le club vous
+              répond au {phone.trim()}. Votre réservation est définitive une fois confirmée.
+            </p>
+            {isDemo && (
+              <p className="mt-4 rounded-2xl bg-sun/40 px-4 py-3 text-sm font-medium">
+                Démonstration : la demande est visible dans l'espace pro de ce navigateur.
+              </p>
+            )}
+            <button
+              type="button"
+              id="demande-autre"
+              onClick={() => setStep('choose')}
+              className="mt-6 w-full rounded-full border-2 border-petrol-900 px-6 py-3.5 text-lg font-semibold text-petrol-900 transition-colors hover:bg-petrol-900 hover:text-cream"
+            >
+              Faire une autre demande
             </button>
           </motion.div>
         )}
       </AnimatePresence>
     </section>
+  )
+}
+
+function Recap({ date, hours, count }: { date: string; hours: string; count: number }) {
+  const rows = [
+    { label: 'Jour', value: formatLong(date), cap: true },
+    { label: 'Horaires', value: hours },
+    { label: 'Transats', value: String(count) },
+  ]
+  return (
+    <dl className="mt-6 divide-y divide-petrol-900/15 border-y border-petrol-900/15">
+      {rows.map((row) => (
+        <div key={row.label} className="flex justify-between gap-4 py-3">
+          <dt className="text-petrol-700">{row.label}</dt>
+          <dd className={`text-right font-semibold ${row.cap ? 'first-letter:uppercase' : ''}`}>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 

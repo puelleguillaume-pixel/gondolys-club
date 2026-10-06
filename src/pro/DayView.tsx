@@ -13,17 +13,24 @@ import PlanCanvas, { Legend, type BedState } from './PlanCanvas'
 import { Button, errorMessage } from './ui'
 
 const statusLabel: Record<ReservationStatus, string> = {
-  confirmed: 'Attendu',
+  pending: 'À confirmer',
+  refused: 'Refusée',
+  confirmed: 'Confirmée',
   arrived: 'Arrivé',
   no_show: 'Absent',
   cancelled: 'Annulée',
 }
 const statusPill: Record<ReservationStatus, string> = {
+  pending: 'bg-sun text-petrol-950',
+  refused: 'bg-off text-petrol-950',
   confirmed: 'bg-petrol-900 text-cream',
   arrived: 'bg-ok text-white',
   no_show: 'bg-off text-petrol-950',
   cancelled: 'bg-off text-petrol-950',
 }
+
+/** Ordre de la liste : d'abord ce qui attend une décision, puis les réservations en cours. */
+const rank = (s: ReservationStatus) => (s === 'pending' ? 0 : holdsSunbeds(s) ? 1 : 2)
 
 const shiftDay = (iso: string, delta: number) => {
   const [y, m, d] = iso.split('-').map(Number)
@@ -44,10 +51,13 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
   const [panel, setPanel] = useState<Panel>({ kind: 'list' })
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [waiting, setWaiting] = useState<Reservation[]>([])
 
   const refresh = useCallback(async () => {
     try {
-      setDay(await api.getDay(date))
+      const [d, waiting] = await Promise.all([api.getDay(date), api.listPending()])
+      setDay(d)
+      setWaiting(waiting)
     } catch (e) {
       setError(errorMessage(e))
     }
@@ -100,18 +110,23 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
     return new Set<number>()
   }, [panel, current])
 
+  const choosingPlace = panel.kind === 'reservation' && current?.status === 'pending'
   const targets = useMemo(() => {
-    if (panel.kind !== 'move') return undefined
+    if (panel.kind !== 'move' && !choosingPlace) return undefined
     const free = new Set<number>()
     for (let n = 1; n <= TOTAL_SUNBEDS; n++) if (!byBed.has(n) && !blocked.has(n)) free.add(n)
     return free
-  }, [panel, byBed, blocked])
+  }, [panel, choosingPlace, byBed, blocked])
 
   const onBed = (n: number) => {
     if (panel.kind === 'move') {
       if (targets?.has(n)) {
         void run(() => api.moveSunbed(panel.id, panel.from, n), { kind: 'reservation', id: panel.id })
       }
+      return
+    }
+    if (choosingPlace && current && targets?.has(n)) {
+      void run(() => api.confirm(current.id, n))
       return
     }
     const r = byBed.get(n)
@@ -121,7 +136,7 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
 
   const filtered = (day?.reservations ?? [])
     .filter((r) => `${r.name} ${r.phone}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => Number(!holdsSunbeds(a.status)) - Number(!holdsSunbeds(b.status)) || a.name.localeCompare(b.name, 'fr'))
+    .sort((a, b) => rank(a.status) - rank(b.status) || a.name.localeCompare(b.name, 'fr'))
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -163,6 +178,31 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
           )}{' '}
           sur {TOTAL_SUNBEDS}.
         </p>
+
+        {waiting.length > 0 && (
+          <div className="mt-4 rounded-3xl bg-sun/35 p-4 ring-1 ring-sun-deep">
+            <p className="text-base font-semibold">
+              {waiting.length} demande{waiting.length > 1 ? 's' : ''} à confirmer
+            </p>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {waiting.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (r.date === date) setPanel({ kind: 'reservation', id: r.id })
+                      else setDate(r.date)
+                    }}
+                    className="min-h-11 rounded-full bg-white px-4 text-left text-base font-medium ring-1 ring-petrol-900/20 hover:ring-petrol-900"
+                  >
+                    <span className="font-semibold">{r.name}</span>, {r.quantity} transat{r.quantity > 1 ? 's' : ''}
+                    {r.date !== date && <span className="text-petrol-950/70">, {formatLong(r.date)}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="mt-4">
           <PlanCanvas
@@ -215,12 +255,12 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
                     <button
                       type="button"
                       onClick={() => setPanel({ kind: 'reservation', id: r.id })}
-                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-2 py-3 text-left hover:bg-petrol-900/5 ${holdsSunbeds(r.status) ? '' : 'opacity-60'}`}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-2 py-3 text-left hover:bg-petrol-900/5 ${rank(r.status) === 2 ? 'opacity-60' : ''}`}
                     >
                       <span className="min-w-0">
                         <span className="block truncate font-semibold">{r.name}</span>
                         <span className="block text-sm text-petrol-950/70 tabular-nums">
-                          {holdsSunbeds(r.status) ? `Transats ${r.sunbeds.join(', ')}` : `${r.quantity} transat${r.quantity > 1 ? 's' : ''}`}
+                          {holdsSunbeds(r.status) ? `Transats ${r.sunbeds.join(', ')}` : `${r.quantity} transat${r.quantity > 1 ? 's' : ''}${r.status === 'pending' ? ' demandé' + (r.quantity > 1 ? 's' : '') : ''}`}
                         </span>
                       </span>
                       <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${statusPill[r.status]}`}>
@@ -296,6 +336,7 @@ export default function DayView({ api, layout }: { api: ProApi; layout: Sunbed[]
             reservation={current}
             onBack={() => setPanel({ kind: 'list' })}
             onStatus={(status) => run(() => api.setStatus(current.id, status))}
+            onConfirm={() => run(() => api.confirm(current.id))}
             onMove={(from) => setPanel({ kind: 'move', id: current.id, from })}
           />
         )}
@@ -319,11 +360,13 @@ function ReservationCard({
   reservation: r,
   onBack,
   onStatus,
+  onConfirm,
   onMove,
 }: {
   reservation: Reservation
   onBack: () => void
   onStatus: (s: ReservationStatus) => void
+  onConfirm: () => void
   onMove: (from: number) => void
 }) {
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -372,6 +415,39 @@ function ReservationCard({
       )}
 
       <div className="mt-6 grid gap-3">
+        {r.status === 'pending' && (
+          <>
+            <Button variant="primary" id="resa-confirmer" onClick={onConfirm}>
+              Confirmer la réservation
+            </Button>
+            <p className="text-sm text-petrol-950/75">
+              Les transats sont attribués automatiquement. Pour choisir l'emplacement, touchez plutôt un
+              transat libre sur le plan.
+            </p>
+            {confirmCancel ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="danger" onClick={() => onStatus('refused')}>
+                  Oui, refuser
+                </Button>
+                <Button variant="ghost" onClick={() => setConfirmCancel(false)}>
+                  Non, garder
+                </Button>
+              </div>
+            ) : (
+              <Button variant="danger" onClick={() => setConfirmCancel(true)}>
+                Refuser la demande
+              </Button>
+            )}
+          </>
+        )}
+        {r.status === 'refused' && (
+          <>
+            <p className="text-petrol-950/80">Demande refusée. Aucun transat n'est retenu.</p>
+            <Button variant="outline" onClick={() => onStatus('pending')}>
+              Remettre en attente
+            </Button>
+          </>
+        )}
         {r.status === 'confirmed' && (
           <Button variant="primary" onClick={() => onStatus('arrived')}>
             Marquer arrivé
@@ -402,7 +478,7 @@ function ReservationCard({
               Annuler la réservation
             </Button>
           ))}
-        {!holding && (
+        {(r.status === 'cancelled' || r.status === 'no_show') && (
           <>
             <p className="text-petrol-950/80">
               Ses transats ({r.sunbeds.join(', ')}) sont de nouveau libres.
